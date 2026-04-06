@@ -141,7 +141,7 @@ tags:
   let sha;
   try {
     const getRes = await fetch(
-      `https://api.github.com/repos/${GITHUB_REPO}/contents/${encodeURIComponent(filePath)}?ref=${GITHUB_BRANCH}`,
+      `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath.split("/").map(encodeURIComponent).join("/")}?ref=${GITHUB_BRANCH}`,
       { headers: { Authorization: `token ${GITHUB_TOKEN}` } }
     );
     if (getRes.ok) {
@@ -160,7 +160,7 @@ tags:
   if (sha) body.sha = sha;
 
   const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_REPO}/contents/${encodeURIComponent(filePath)}`,
+    `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`,
     {
       method: "PUT",
       headers: {
