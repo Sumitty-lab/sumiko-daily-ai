@@ -283,13 +283,6 @@ async function processReview(userId, session) {
   session.score = 0;
 }
 
-// --- Vercel: bodyパーサー無効化（生のバイト列で署名検証するため） ---
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 // 生のリクエストボディを読み取るヘルパー
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -301,7 +294,7 @@ function getRawBody(req) {
 }
 
 // --- Vercel Serverless Function ---
-module.exports = async (req, res) => {
+const handler = async (req, res) => {
   if (req.method === "GET") {
     return res.status(200).send("LINE-aika webhook is running.");
   }
@@ -337,6 +330,15 @@ module.exports = async (req, res) => {
   // LINEプラットフォームには即座に200を返す
   return res.status(200).json({ status: "ok" });
 };
+
+// --- Vercel: bodyパーサー無効化（生のバイト列で署名検証するため） ---
+handler.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+module.exports = handler;
 
 // --- ローカル起動用 ---
 if (require.main === module) {
