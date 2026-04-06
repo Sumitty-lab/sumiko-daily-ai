@@ -94,7 +94,7 @@ ${upText}
 ${score} / 10`;
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250514",
+    model: "claude-3-haiku-20240307",
     max_tokens: 1024,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
