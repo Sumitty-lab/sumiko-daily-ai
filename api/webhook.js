@@ -305,13 +305,14 @@ const handler = async (req, res) => {
   const body = req.body;
   const events = body.events || [];
 
-  // 各イベントを処理（fire-and-forget で非同期処理を起動）
+  // 各イベントを処理（Vercelでは応答前にawaitしないと関数が終了する）
   for (const event of events) {
     if (event.type === "message" && event.message.type === "text") {
-      // handleMessage内でawaitしているが、processReviewは非同期で走る
-      handleMessage(event).catch((err) => {
+      try {
+        await handleMessage(event);
+      } catch (err) {
         console.error("handleMessage error:", err);
-      });
+      }
     }
   }
 
