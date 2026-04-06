@@ -1,0 +1,12 @@
+{
+  "name": "line-aika",
+  "version": "1.0.0",
+  "description": "LINE AI愛華ジャーナリングBot",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@line/bot-sdk": "^9.6.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
