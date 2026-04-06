@@ -244,12 +244,14 @@ async function handleMessage(event) {
         "ありがとうございます。少しお待ちくださいね、レビューを書いていますよ。"
       );
 
-      // 非同期でレビュー生成 & 保存（replyTokenは使えないのでpushで送信）
-      processReview(userId, session).catch((err) => {
+      // レビュー生成 & 保存（Vercelではawaitしないと関数が終了する）
+      try {
+        await processReview(userId, session);
+      } catch (err) {
         console.error("Review processing error:", err);
-        pushToLine(userId, "申し訳ありません、エラーが発生しました。もう一度お試しください。").catch(console.error);
+        await pushToLine(userId, "申し訳ありません、エラーが発生しました。もう一度お試しください。");
         session.state = "IDLE";
-      });
+      }
       break;
     }
 
