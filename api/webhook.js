@@ -20,7 +20,7 @@ const sessions = new Map();
 
 function getSession(userId) {
   if (!sessions.has(userId)) {
-    sessions.set(userId, { state: "IDLE", downText: "", upText: "", score: 0, messages: [] });
+    sessions.set(userId, { state: "IDLE", targetDate: null, downText: "", upText: "", score: 0, messages: [] });
   }
   return sessions.get(userId);
 }
@@ -103,11 +103,23 @@ ${score} / 10`;
   return response.content[0].text;
 }
 
+// --- JST日付ヘルパー ---
+function getJSTDate(date = new Date()) {
+  // Vercelサーバー（UTC）→ JST（+9時間）変換
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(jst.getUTCDate()).padStart(2, "0");
+  const days = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
+  const dayOfWeek = days[jst.getUTCDay()];
+  return { dateStr: `${y}-${m}-${d}`, dayOfWeek };
+}
+
 // --- GitHub APIでジャーナル保存 ---
-async function saveJournalToGitHub(downText, upText, score, review) {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
-  const dayOfWeek = now.toLocaleDateString("ja-JP", { weekday: "long" });
+async function saveJournalToGitHub(downText, upText, score, review, targetDate = null) {
+  const { dateStr, dayOfWeek } = targetDate
+    ? { dateStr: targetDate, dayOfWeek: (() => { const d = new Date(targetDate + "T12:00:00+09:00"); const days = ["日曜日","月曜日","火曜日","水曜日","木曜日","金曜日","土曜日"]; return days[d.getDay()]; })() }
+    : getJSTDate();
 
   const content = `---
 date: ${dateStr}
@@ -183,6 +195,54 @@ function isJournalTrigger(text) {
   return triggers.some((t) => text.includes(t));
 }
 
+// --- 日付パース（「今日」「昨日」「4/8」「2026-04-08」等に対応） ---
+function parseTargetDate(text) {
+  const { dateStr: todayStr } = getJSTDate();
+  const todayJST = new Date(todayStr + "T12:00:00+09:00");
+
+  const trimmed = text.trim();
+
+  // 「今日」
+  if (trimmed === "今日" || trimmed === "きょう") {
+    return todayStr;
+  }
+
+  // 「昨日」
+  if (trimmed === "昨日" || trimmed === "きのう") {
+    const yesterday = new Date(todayJST.getTime() - 24 * 60 * 60 * 1000);
+    const y = yesterday.getFullYear();
+    const m = String(yesterday.getMonth() + 1).padStart(2, "0");
+    const d = String(yesterday.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // 「一昨日」「おととい」
+  if (trimmed === "一昨日" || trimmed === "おととい") {
+    const dayBefore = new Date(todayJST.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const y = dayBefore.getFullYear();
+    const m = String(dayBefore.getMonth() + 1).padStart(2, "0");
+    const d = String(dayBefore.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // 「4/8」「4月8日」形式
+  const shortMatch = trimmed.match(/^(\d{1,2})[\/月](\d{1,2})日?$/);
+  if (shortMatch) {
+    const y = todayJST.getFullYear();
+    const m = String(parseInt(shortMatch[1])).padStart(2, "0");
+    const d = String(parseInt(shortMatch[2])).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // 「2026-04-08」形式
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return trimmed;
+  }
+
+  return null; // パース失敗
+}
+
 // --- メッセージ処理 ---
 async function handleMessage(event) {
   const userId = event.source.userId;
@@ -192,10 +252,11 @@ async function handleMessage(event) {
   switch (session.state) {
     case "IDLE": {
       if (isJournalTrigger(text)) {
-        session.state = "WAITING_DOWN";
+        const { dateStr } = getJSTDate();
+        session.state = "WAITING_DATE";
         await replyToLine(
           event.replyToken,
-          `${USER_NAME}さん、こんにちは。今日のジャーナル、聞かせてください。まずダウンなことから教えてもらえますか？`
+          `${USER_NAME}さん、こんにちは。愛華です。\n今日は${dateStr}ですね。\n\nいつのジャーナリングをしますか？\n（「今日」「昨日」「4/8」など）`
         );
       } else {
         await replyToLine(
@@ -206,12 +267,34 @@ async function handleMessage(event) {
       break;
     }
 
+    case "WAITING_DATE": {
+      const targetDate = parseTargetDate(text);
+      if (!targetDate) {
+        await replyToLine(
+          event.replyToken,
+          "日付がわかりませんでした。「今日」「昨日」「4/8」のように教えてくださいね。"
+        );
+        return;
+      }
+      session.targetDate = targetDate;
+      session.state = "WAITING_DOWN";
+      // 曜日も表示
+      const days = ["日","月","火","水","木","金","土"];
+      const d = new Date(targetDate + "T12:00:00+09:00");
+      const dow = days[d.getDay()];
+      await replyToLine(
+        event.replyToken,
+        `${targetDate}（${dow}）のジャーナルですね。\nでは、まず**ダウンなこと**から教えてください。\n特になければ「なし」で大丈夫ですよ。`
+      );
+      break;
+    }
+
     case "WAITING_DOWN": {
       session.downText = text;
       session.state = "WAITING_UP";
       await replyToLine(
         event.replyToken,
-        "受け取りました。次に、アップなことを教えてください。"
+        "受け取りました。次に、**アップなこと**を教えてください。"
       );
       break;
     }
@@ -221,7 +304,7 @@ async function handleMessage(event) {
       session.state = "WAITING_SCORE";
       await replyToLine(
         event.replyToken,
-        "ありがとうございます。最後に、今日の満足度を1〜10で教えてください。"
+        "ありがとうございます。最後に、**その日の満足度**を1〜10で教えてください。\n（1＝最低、10＝最高）"
       );
       break;
     }
@@ -238,7 +321,7 @@ async function handleMessage(event) {
       session.score = score;
       session.state = "REVIEWING";
 
-      // 1000ms以内にレスポンスを返す必要があるので、先にreplyしてから非同期処理
+      // 先にreplyしてから非同期処理
       await replyToLine(
         event.replyToken,
         "ありがとうございます。少しお待ちくださいね、レビューを書いていますよ。"
@@ -274,12 +357,14 @@ async function handleMessage(event) {
 async function processReview(userId, session) {
   const review = await generateReview(session.downText, session.upText, session.score);
 
-  await saveJournalToGitHub(session.downText, session.upText, session.score, review);
+  await saveJournalToGitHub(session.downText, session.upText, session.score, review, session.targetDate);
 
   await pushToLine(userId, review);
-  await pushToLine(userId, "ジャーナルを保存しました。また明日、よろしくお願いしますね。");
+  const dateSuffix = session.targetDate ? `（${session.targetDate}）` : "";
+  await pushToLine(userId, `ジャーナル${dateSuffix}を保存しました。また明日、よろしくお願いしますね。`);
 
   session.state = "IDLE";
+  session.targetDate = null;
   session.downText = "";
   session.upText = "";
   session.score = 0;
