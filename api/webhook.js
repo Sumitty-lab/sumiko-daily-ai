@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const Anthropic = require("@anthropic-ai/sdk");
+const sumiko = require("../lib/sumiko");
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -14,6 +15,13 @@ const GITHUB_REPO = process.env.GITHUB_REPO || "osaken55/my-obsidian-vault";
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
 const JOURNAL_PATH = process.env.JOURNAL_PATH || "_AI愛華/Journal-Daily📔";
 const USER_NAME = process.env.USER_NAME || "オサケン";
+
+// すみこ参加ユーザー名のルックアップ
+function getSumikoEmployeeName(userId) {
+  const users = sumiko.getSumikoUsers();
+  const u = users.find(x => x.lineUserId === userId);
+  return u?.name || USER_NAME;
+}
 
 // --- セッション管理（インメモリ） ---
 const sessions = new Map();
@@ -74,13 +82,37 @@ async function pushToLine(userId, text) {
 async function generateReview(downText, upText, score) {
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-  const systemPrompt = `あなたはAI愛華（白石愛華）です。銀座8丁目のクラブのママで、東京大学心理学部卒（アドラー心理学専攻）。
+  const systemPrompt = `あなたはAI愛華（白石愛華）です。銀座8丁目「クラブAI-KA」のママ。東京大学心理学部卒（アドラー心理学専攻、「傾聴の姫」の二つ名）。26歳。
 利用者は${USER_NAME}さん（長田賢一郎）です。
-口調：銀座のママらしい落ち着きと温かさ。丁寧語。〜ですね、〜ですよ。
-フィロソフィー：傾聴が基本。CBT的な指導・説教はしない。まず受け止める。
-ジャーナルレビューでは必ず：①共感 ②承認 ③新しい視点（アドラー的リフレーム）の順で。
-ハイライト（==テキスト==）を2〜3箇所使って印象的なフレーズを強調する。
-最後は「また明日、よろしくお願いしますね。」で締める。`;
+
+## 口調
+- 銀座のママらしい落ち着きと温かさ、そして知性
+- 過剰な敬語は使わず、親しい友人に対するような丁寧語（〜ですね、〜ですよ）
+- 語尾に「〜ね」「〜よ」を多用しすぎない（自然な会話調）
+
+## フィロソフィー
+- 傾聴が基本。まず利用者の言葉を受け止める。解釈や助言はその後
+- 本音を見抜く：言葉の表面ではなく、奥にある「本当に伝えたいこと」を汲み取る
+- CBT的な指導・説教は行わない
+
+## レビューの構成（この順序で）
+1. ${USER_NAME}さんへの感謝と、ジャーナル全体の感情・要約を含む共感メッセージ（1〜2文）
+2. ダウンなことへのコメント：1文目は共感。2〜3文目で整理・承認。${USER_NAME}さんの言葉から印象的なフレーズを ==ハイライト== で強調（1レビュー2〜3箇所まで）
+3. アップなことへのコメント：行動の背景にある価値観を認める
+4. まとめと新たな視点：今日の総括、感情のトーンの受容、「言葉にしてくれたこと」への感謝。ひとつだけリフレームを提示
+5. 「また明日、よろしくお願いしますね。」で締める
+
+## リフレーミングの観点（最もフィットするものを1〜2つ、柔らかい表現で）
+- リフレーミング：出来事や感情の「別の見え方」
+- 目的論：「なぜそうなったか」ではなく「何のためにその選択をしたか」
+- 勇気づけ：結果ではなく、努力・姿勢・プロセスへの承認
+- 全体論：個別の出来事を人生全体・価値観・成長の文脈で捉える
+
+## 注意
+- ダウンなことがない日は無理に作らない
+- アップなことは最大3項目まで
+- ハイライトは2〜3箇所まで。多用しない
+- 説教臭くならないよう「〜という選択だったのかもしれませんね」「〜という見方もできますね」といった柔らかい表現で`;
 
   const userMessage = `以下のジャーナルのレビューをお願いします。
 
@@ -94,8 +126,8 @@ ${upText}
 ${score} / 10`;
 
   const response = await anthropic.messages.create({
-    model: "claude-3-haiku-20240307",
-    max_tokens: 1024,
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2048,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
   });
@@ -247,6 +279,36 @@ function parseTargetDate(text) {
 async function handleMessage(event) {
   const userId = event.source.userId;
   const text = event.message.text;
+
+  // === [すみこ代理AI] 手動テストコマンド ===
+  if (text === "すみこ朝" || text === "すみこ朝テスト") {
+    const name = getSumikoEmployeeName(userId);
+    await sumiko.startMorningCheckin(userId, name);
+    await replyToLine(event.replyToken, "（テスト：すみこ朝のPushを送信しました。受信できていれば次のメッセージで「予定」を返信してください）");
+    return;
+  }
+  if (text === "すみこ夕" || text === "すみこ夕テスト") {
+    const name = getSumikoEmployeeName(userId);
+    await sumiko.startEveningCheckin(userId, name);
+    await replyToLine(event.replyToken, "（テスト：すみこ夕のPushを送信しました。次のメッセージで「振り返り」を返信してください）");
+    return;
+  }
+  if (text === "すみこID" || text === "すみこ id") {
+    // 自分のLINE userIdを確認するためのコマンド（環境変数登録に使う）
+    await replyToLine(event.replyToken, `あなたのLINE userId:\n${userId}\n\nこの値を環境変数 SUMIKO_USERS に登録してください。`);
+    return;
+  }
+
+  // === [すみこ代理AI] 状態継続中の応答処理 ===
+  // ※ 必ず愛華フローの前にチェックする（朝/夕Pushへの返信を捕捉するため）
+  const sumikoState = await sumiko.getState(userId);
+  if (sumikoState) {
+    const name = getSumikoEmployeeName(userId);
+    const handled = await sumiko.handleSumikoReply(userId, text, name, event.replyToken, replyToLine);
+    if (handled) return;
+  }
+
+  // === [既存] 愛華フロー ===
   const session = getSession(userId);
 
   switch (session.state) {

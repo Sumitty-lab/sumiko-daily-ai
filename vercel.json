@@ -1,5 +1,16 @@
 {
   "rewrites": [
-    { "source": "/webhook", "destination": "/api/webhook" }
+    { "source": "/webhook", "destination": "/api/webhook" },
+    { "source": "/sumiko-cron", "destination": "/api/sumiko-cron" }
+  ],
+  "crons": [
+    {
+      "path": "/api/sumiko-cron-morning",
+      "schedule": "0 23 * * 0-4"
+    },
+    {
+      "path": "/api/sumiko-cron-evening",
+      "schedule": "30 8 * * 1-5"
+    }
   ]
 }
